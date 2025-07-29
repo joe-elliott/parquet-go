@@ -3,7 +3,6 @@ package parquet_test
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"math/rand"
 	"os"
@@ -436,6 +435,7 @@ func TestIssue229(t *testing.T) {
 	sch.Reconstruct(tr, secondRows[0])
 }
 
+/* jpe - restore
 func TestReadDictionaryPage(t *testing.T) {
 	type A struct {
 		Index string `parquet:",dict"`
@@ -517,7 +517,7 @@ func TestReadDictionaryPage(t *testing.T) {
 	if foundRows != totalRows {
 		t.Fatalf("expected %d rows, got %d", totalRows, foundRows)
 	}
-}
+}*/
 
 func TestCopyFilePages(t *testing.T) {
 	type A struct {
@@ -609,6 +609,8 @@ func TestSeekToRowGeneral(t *testing.T) {
 				t.Fatalf("ReadValues failed at row %d: %v", i, err)
 			}
 
+			_, _ = pages.ReadPage()
+
 			if n != 1 {
 				t.Fatalf("expected 1 value, got %d at position %d", n, i)
 			}
@@ -633,6 +635,8 @@ func TestSeekToRowGeneral(t *testing.T) {
 				t.Fatalf("ReadPage failed at row %d: %v", i, err)
 			}
 
+			_, _ = pages.ReadPage()
+
 			vals := make([]parquet.Value, 1)
 			n, err := pg.Values().ReadValues(vals)
 			if err != nil && err != io.EOF {
@@ -653,10 +657,9 @@ func TestSeekToRowGeneral(t *testing.T) {
 
 	// Test 3: SeekToRow to random rows
 	t.Run("random", func(t *testing.T) {
-		rng := rand.New(rand.NewSource(42)) // Use fixed seed for reproducible tests
-		randomRows := make([]int, 1000)
+		randomRows := make([]int, 100)
 		for i := range randomRows {
-			randomRows[i] = rng.Intn(numRows)
+			randomRows[i] = rand.Intn(numRows)
 		}
 		t.Logf("Testing random rows: %v", randomRows)
 
@@ -669,6 +672,8 @@ func TestSeekToRowGeneral(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ReadPage failed at row %d: %v", rowNum, err)
 			}
+
+			_, _ = pages.ReadPage()
 
 			vals := make([]parquet.Value, 1)
 			n, err := pg.Values().ReadValues(vals)

@@ -542,8 +542,8 @@ func (c *FileColumnChunk) Pages() Pages {
 //
 // Note that unlike when calling Pages, the returned reader is not wrapped in an
 // AsyncPages reader if the file was opened in async mode.
-func (c *FileColumnChunk) PagesFrom(reader io.ReaderAt) *FilePages {
-	pages := new(FilePages)
+func (c *FileColumnChunk) PagesFrom(reader io.ReaderAt) *FilePagesV2 {
+	pages := new(FilePagesV2) // jpe - make optional
 	pages.init(c, reader)
 	return pages
 }

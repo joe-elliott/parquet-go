@@ -536,6 +536,7 @@ func (p *bufferPool) get(bufferSize int) *buffer {
 	}
 
 	if b == nil {
+		//		fmt.Println("buffer miss!")
 		b = p.newBuffer(bufferSize, bucketSize)
 	} else {
 		b.data = b.data[:bufferSize]
