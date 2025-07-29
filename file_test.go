@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -552,4 +553,136 @@ type nopPageWriter struct{}
 
 func (n nopPageWriter) WritePage(page parquet.Page) (int64, error) {
 	return page.NumValues(), nil
+}
+
+func TestSeekToRowGeneral(t *testing.T) {
+	type Row struct {
+		A int `parquet:","`
+	}
+
+	// Create test data with 100 rows
+	const numRows = 100
+
+	// Create parquet file in memory with small page buffer to force many pages
+	buf := new(bytes.Buffer)
+	w := parquet.NewGenericWriter[Row](buf, parquet.PageBufferSize(128)) // jpe - comment
+
+	// Write rows individually with frequent flushes to create multiple row groups
+	for i := 0; i < numRows; i++ {
+		if _, err := w.Write([]Row{{A: i}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Open parquet file for reading
+	pf, err := parquet.OpenFile(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rgs := pf.RowGroups()
+	if len(rgs) != 1 {
+		t.Fatalf("expected exactly 1 row group, got %d", len(rgs))
+	}
+
+	pages := rgs[0].ColumnChunks()[0].Pages()
+
+	// Test 1: SeekToRow forward through every row
+	t.Run("forward", func(t *testing.T) {
+		for i := 0; i < numRows; i++ {
+			if err := pages.SeekToRow(int64(i)); err != nil {
+				t.Fatalf("SeekToRow(%d) failed: %v", i, err)
+			}
+
+			pg, err := pages.ReadPage()
+			if err != nil {
+				t.Fatalf("ReadPage failed at row %d: %v", i, err)
+			}
+
+			vals := make([]parquet.Value, 1)
+			n, err := pg.Values().ReadValues(vals)
+			if err != nil && err != io.EOF {
+				t.Fatalf("ReadValues failed at row %d: %v", i, err)
+			}
+
+			if n != 1 {
+				t.Fatalf("expected 1 value, got %d at position %d", n, i)
+			}
+
+			if vals[0].Int64() != int64(i) {
+				t.Errorf("row %d: expected value %d, got %d", i, i, vals[0].Int64())
+			}
+		}
+	})
+
+	pages = rgs[0].ColumnChunks()[0].Pages()
+
+	// Test 2: SeekToRow backward through every row
+	t.Run("backward", func(t *testing.T) {
+		for i := numRows - 1; i >= 0; i-- {
+			if err := pages.SeekToRow(int64(i)); err != nil {
+				t.Fatalf("SeekToRow(%d) failed: %v", i, err)
+			}
+
+			pg, err := pages.ReadPage()
+			if err != nil {
+				t.Fatalf("ReadPage failed at row %d: %v", i, err)
+			}
+
+			vals := make([]parquet.Value, 1)
+			n, err := pg.Values().ReadValues(vals)
+			if err != nil && err != io.EOF {
+				t.Fatalf("ReadValues failed at row %d: %v", i, err)
+			}
+
+			if n != 1 {
+				t.Fatalf("expected 1 value, got %d at position %d", n, i)
+			}
+
+			if vals[0].Int64() != int64(i) {
+				t.Errorf("row %d: expected value %d, got %d", i, i, vals[0].Int64())
+			}
+		}
+	})
+
+	pages = rgs[0].ColumnChunks()[0].Pages()
+
+	// Test 3: SeekToRow to random rows
+	t.Run("random", func(t *testing.T) {
+		rng := rand.New(rand.NewSource(42)) // Use fixed seed for reproducible tests
+		randomRows := make([]int, 1000)
+		for i := range randomRows {
+			randomRows[i] = rng.Intn(numRows)
+		}
+		t.Logf("Testing random rows: %v", randomRows)
+
+		for _, rowNum := range randomRows {
+			if err := pages.SeekToRow(int64(rowNum)); err != nil {
+				t.Fatalf("SeekToRow(%d) failed: %v", rowNum, err)
+			}
+
+			pg, err := pages.ReadPage()
+			if err != nil {
+				t.Fatalf("ReadPage failed at row %d: %v", rowNum, err)
+			}
+
+			vals := make([]parquet.Value, 1)
+			n, err := pg.Values().ReadValues(vals)
+			if err != nil && err != io.EOF {
+				t.Fatalf("ReadValues failed at row %d: %v", rowNum, err)
+			}
+
+			if n != 1 {
+				t.Fatalf("expected 1 value, got %d at position %d", n, rowNum)
+			}
+
+			if vals[0].Int64() != int64(rowNum) {
+				t.Errorf("row %d: expected value %d, got %d", rowNum, rowNum, vals[0].Int64())
+			}
+		}
+	})
 }
